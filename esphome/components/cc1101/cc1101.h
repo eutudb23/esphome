@@ -3,7 +3,6 @@
 #include "esphome/core/component.h"
 #include "esphome/core/automation.h"
 #include "esphome/components/spi/spi.h"
-#include "esphome/components/remote_base/rc_switch_protocol.h"
 #include "esphome/components/voltage_sampler/voltage_sampler.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/binary_sensor/binary_sensor.h"
@@ -13,6 +12,7 @@
 #include "esphome/components/select/select.h"
 #include "esphome/components/text/text.h"
 #include <string>
+#include <vector>
 #include "cc1101defs.h"
 #include "cc1101sub.h"
 
@@ -35,6 +35,10 @@ class CC1101Component : public PollingComponent,
 
   void begin_tx();
   void end_tx();
+  
+  // Raw data transmission methods
+  void send_raw_data(const std::vector<int> &timings);
+  void send_rc_switch_raw(const std::string &code, int protocol, int repeat);
 
   CC1101_SUB_NUMBER(output_power, float)
   CC1101_SUB_SELECT(rx_attenuation, RxAttenuation)
@@ -110,15 +114,21 @@ template<typename... Ts> class EndTxAction : public Action<Ts...>, public Parent
 };
 
 template<typename... Ts>
-class CC1101RawAction : public remote_base::RCSwitchRawAction<Ts...>, public Parented<CC1101Component> {
+class CC1101RawAction : public Action<Ts...>, public Parented<CC1101Component> {
+ public:
+  void set_code(const std::string &code) { code_ = code; }
+  void set_protocol(int protocol) { protocol_ = protocol; }
+  void set_repeat(int repeat) { repeat_ = repeat; }
+
  protected:
   void play(Ts... x) override {
-    this->parent_->begin_tx();
-    remote_base::RCSwitchRawAction<Ts...>::play(x...);
-    this->parent_->end_tx();
+    this->parent_->send_rc_switch_raw(code_, protocol_, repeat_);
   }
 
- public:
+ private:
+  std::string code_;
+  int protocol_ = 1;
+  int repeat_ = 3;
 };
 
 }  // namespace cc1101

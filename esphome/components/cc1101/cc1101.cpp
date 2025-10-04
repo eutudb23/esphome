@@ -5,6 +5,8 @@
 #include <climits>
 #include <cmath>
 #include <cstdio>
+#include <sstream>
+#include <algorithm>
 
 namespace esphome {
 namespace cc1101 {
@@ -323,6 +325,82 @@ void CC1101Component::end_tx() {
   }
 
   this->send_(Command::RX);
+}
+
+// Raw data transmission methods
+
+void CC1101Component::send_raw_data(const std::vector<int> &timings) {
+  if (timings.empty()) {
+    ESP_LOGW(TAG, "Empty timings vector, nothing to send");
+    return;
+  }
+
+  ESP_LOGD(TAG, "Sending raw data with %zu timings", timings.size());
+  
+  this->begin_tx();
+  
+  for (size_t i = 0; i < timings.size(); i++) {
+    int timing = timings[i];
+    bool high = (timing > 0);
+    int duration = abs(timing);
+    
+    if (this->gdo0_ != nullptr) {
+      this->gdo0_->digital_write(high);
+    }
+    
+    // Convert microseconds to milliseconds for delay
+    if (duration > 1000) {
+      delay(duration / 1000);
+      delayMicroseconds(duration % 1000);
+    } else {
+      delayMicroseconds(duration);
+    }
+  }
+  
+  // Ensure we end with low signal
+  if (this->gdo0_ != nullptr) {
+    this->gdo0_->digital_write(false);
+  }
+  
+  this->end_tx();
+}
+
+void CC1101Component::send_rc_switch_raw(const std::string &code, int protocol, int repeat) {
+  ESP_LOGD(TAG, "Sending RC switch code: %s, protocol: %d, repeat: %d", code.c_str(), protocol, repeat);
+  
+  // Parse the code string into timing vector
+  std::vector<int> timings;
+  std::stringstream ss(code);
+  std::string item;
+  
+  while (std::getline(ss, item, ',')) {
+    // Remove whitespace
+    item.erase(std::remove_if(item.begin(), item.end(), ::isspace), item.end());
+    if (!item.empty()) {
+      try {
+        int timing = std::stoi(item);
+        timings.push_back(timing);
+      } catch (const std::exception &e) {
+        ESP_LOGE(TAG, "Failed to parse timing: %s", item.c_str());
+        return;
+      }
+    }
+  }
+  
+  if (timings.empty()) {
+    ESP_LOGW(TAG, "No valid timings found in code: %s", code.c_str());
+    return;
+  }
+  
+  // Send the code multiple times as specified
+  for (int i = 0; i < repeat; i++) {
+    this->send_raw_data(timings);
+    
+    // Add delay between repeats (except for the last one)
+    if (i < repeat - 1) {
+      delay(100); // 100ms delay between repeats
+    }
+  }
 }
 
 // protected

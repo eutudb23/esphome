@@ -3,7 +3,6 @@ from esphome.automation import maybe_simple_id
 import esphome.codegen as cg
 from esphome.components import (
     binary_sensor,
-    remote_base,
     sensor,
     spi,
     text_sensor,
@@ -33,7 +32,6 @@ from esphome.const import (
 CODEOWNERS = ["@gabest11"]
 DEPENDENCIES = ["spi"]
 AUTO_LOAD = [
-    "remote_base",
     "voltage_sampler",
     "sensor",
     "binary_sensor",
@@ -361,10 +359,20 @@ async def to_code(config):
 
 BeginTxAction = ns.class_("BeginTxAction", automation.Action)
 EndTxAction = ns.class_("EndTxAction", automation.Action)
+CC1101RawAction = ns.class_("CC1101RawAction", automation.Action)
 
 CC1101_ACTION_SCHEMA = maybe_simple_id(
     {
         cv.GenerateID(CONF_ID): cv.use_id(CC1101Component),
+    }
+)
+
+CC1101_RAW_ACTION_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(CONF_CC1101_ID): cv.use_id(CC1101Component),
+        cv.Required(CONF_CODE): cv.templatable(cv.string),
+        cv.Optional(CONF_PROTOCOL, default=1): cv.templatable(cv.int_),
+        cv.Optional("repeat", default=3): cv.templatable(cv.int_),
     }
 )
 
@@ -377,30 +385,17 @@ async def cc1101_action_to_code(config, action_id, template_arg, args):
     return var
 
 
-CC1101RawAction = ns.class_("CC1101RawAction", remote_base.RCSwitchRawAction)
-
-CC1101_TRANSMIT_SCHEMA = (
-    cv.Schema(
-        {
-            cv.GenerateID(CONF_CC1101_ID): cv.use_id(CC1101Component),
-        }
-    )
-    .extend(remote_base.REMOTE_TRANSMITTABLE_SCHEMA)
-    .extend(remote_base.RC_SWITCH_RAW_SCHEMA)
-    .extend(remote_base.RC_SWITCH_TRANSMITTER)
-)
-
-
-@remote_base.register_action(
-    "rc_switch_raw_cc1101", CC1101RawAction, CC1101_TRANSMIT_SCHEMA
-)
-async def rc_switch_raw_cc1101_action(var, config, args):
-    proto = await cg.templatable(
-        config[CONF_PROTOCOL],
-        args,
-        remote_base.RCSwitchBase,
-        to_exp=remote_base.build_rc_switch_protocol,
-    )
-    cg.add(var.set_protocol(proto))
-    cg.add(var.set_code(await cg.templatable(config[CONF_CODE], args, cg.std_string)))
+@automation.register_action("cc1101.rc_switch_raw", CC1101RawAction, CC1101_RAW_ACTION_SCHEMA)
+async def cc1101_raw_action_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_CC1101_ID])
+    
+    code = await cg.templatable(config[CONF_CODE], args, cg.std_string)
+    protocol = await cg.templatable(config[CONF_PROTOCOL], args, cg.int_)
+    repeat = await cg.templatable(config["repeat"], args, cg.int_)
+    
+    cg.add(var.set_code(code))
+    cg.add(var.set_protocol(protocol))
+    cg.add(var.set_repeat(repeat))
+    
+    return var
